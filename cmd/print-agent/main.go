@@ -14,7 +14,7 @@ func main() {
 	cfg := agent.ServerConfig{
 		Address:        getEnv("PRINT_AGENT_ADDR", "127.0.0.1:12345"),
 		Version:        getEnv("PRINT_AGENT_VERSION", "0.1.0"),
-		AllowedOrigins: getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", "http://localhost:4200"),
+		AllowedOrigins: getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", "https://cyberposapp.createam.cloud,http://localhost:4200,http://localhost:4201,http://localhost:5173,http://localhost:5174,http://localhost:3000"),
 		PairingToken:   getEnv("PRINT_AGENT_PAIRING_TOKEN", ""),
 		SigningSecret:  getEnv("PRINT_AGENT_SIGNING_SECRET", ""),
 		MaxClockSkewSec: getIntEnv("PRINT_AGENT_MAX_CLOCK_SKEW_SEC", 300),

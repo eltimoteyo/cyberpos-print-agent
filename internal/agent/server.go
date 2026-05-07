@@ -654,7 +654,14 @@ func normalizeServerConfig(cfg ServerConfig) ServerConfig {
 		cfg.MaxRetries = 3
 	}
 	if len(cfg.AllowedOrigins) == 0 {
-		cfg.AllowedOrigins = []string{"http://localhost:4200"}
+		cfg.AllowedOrigins = []string{
+			"https://cyberposapp.createam.cloud",
+			"http://localhost:4200",
+			"http://localhost:4201",
+			"http://localhost:5173",
+			"http://localhost:5174",
+			"http://localhost:3000",
+		}
 	}
 	return cfg
 }
