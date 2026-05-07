@@ -46,7 +46,7 @@ curl -X POST http://127.0.0.1:12345/print/test \
   -d '{"printerName":"EPSON TM-T20"}'
 curl -X POST http://127.0.0.1:12345/print/ticket \
   -H "Content-Type: application/json" \
-  -d '{"jobId":"job-001","saleId":"sale-001","title":"Venta","lines":["Producto A x1 S/ 10.00","TOTAL S/ 10.00"],"footer":["Gracias por su compra"],"openDrawer":true,"cutPaper":true,"apiBaseUrl":"http://72.62.138.112:8080/api/v1","bearerToken":"<access_token>"}'
+  -d '{"jobId":"job-001","saleId":"sale-001","title":"Venta","lines":["Producto A x1 S/ 10.00","TOTAL S/ 10.00"],"footer":["Gracias por su compra"],"openDrawer":true,"cutPaper":true,"apiBaseUrl":"http://api.yourserver.com/api/v1","bearerToken":"<access_token>"}'
 curl http://127.0.0.1:12345/status
 ```
 
