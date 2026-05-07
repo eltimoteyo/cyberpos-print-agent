@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "timestamp": "2026-05-07T00:00:00Z",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "download_url": "https://releases.example.com/cybererp-print-agent.exe",
+  "file_size": 0,
+  "file_size_mb": 0,
+  "signed": false,
+  "release_notes": "Visit https://github.com/your-repo/releases for detailed changelog"
+}

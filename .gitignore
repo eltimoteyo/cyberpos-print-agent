@@ -1,0 +1,37 @@
+# Binaries and build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dist/
+bin/
+
+# Go specific
+*.test
+*.out
+vendor/
+
+# Environment and secrets
+.env
+.env.*
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# SQLite databases
+*.db
+*.db-journal
+data/
+
+# Logs
+*.log
+logs/
