@@ -121,7 +121,7 @@ try {
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
     
-    $ldflags = "-X main.Version=$Version -X main.BuildTime=$(Get-Date -Format 'o')"
+    $ldflags = "-H=windowsgui -X main.Version=$Version"
     
     Write-Host "   Building: go build -ldflags '$ldflags' -o '$binaryPath' '$cmdPath'"
     go build -ldflags $ldflags -o $binaryPath $cmdPath

@@ -11,10 +11,19 @@ import (
 )
 
 func main() {
+	mandatoryOrigins := []string{
+		"https://cyberposapp.createam.cloud",
+		"http://localhost:4200",
+		"http://localhost:4201",
+		"http://localhost:5173",
+		"http://localhost:5174",
+		"http://localhost:3000",
+	}
+
 	cfg := agent.ServerConfig{
 		Address:        getEnv("PRINT_AGENT_ADDR", "127.0.0.1:12345"),
 		Version:        getEnv("PRINT_AGENT_VERSION", "0.1.0"),
-		AllowedOrigins: getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", "https://cyberposapp.createam.cloud,http://localhost:4200,http://localhost:4201,http://localhost:5173,http://localhost:5174,http://localhost:3000"),
+		AllowedOrigins: withMandatoryOrigins(getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", ""), mandatoryOrigins),
 		PairingToken:   getEnv("PRINT_AGENT_PAIRING_TOKEN", ""),
 		SigningSecret:  getEnv("PRINT_AGENT_SIGNING_SECRET", ""),
 		MaxClockSkewSec: getIntEnv("PRINT_AGENT_MAX_CLOCK_SKEW_SEC", 300),
@@ -69,6 +78,32 @@ func getStringSliceEnv(key, fallback string) []string {
 		if v != "" {
 			out = append(out, v)
 		}
+	}
+
+	return out
+}
+
+func withMandatoryOrigins(current []string, mandatory []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(current)+len(mandatory))
+
+	appendUnique := func(v string) {
+		normalized := strings.TrimSpace(strings.ToLower(v))
+		if normalized == "" {
+			return
+		}
+		if _, ok := seen[normalized]; ok {
+			return
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, strings.TrimSpace(v))
+	}
+
+	for _, v := range current {
+		appendUnique(v)
+	}
+	for _, v := range mandatory {
+		appendUnique(v)
 	}
 
 	return out
