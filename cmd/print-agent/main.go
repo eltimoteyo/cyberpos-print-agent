@@ -21,15 +21,15 @@ func main() {
 	}
 
 	cfg := agent.ServerConfig{
-		Address:        getEnv("PRINT_AGENT_ADDR", "127.0.0.1:12345"),
-		Version:        getEnv("PRINT_AGENT_VERSION", "0.1.0"),
-		AllowedOrigins: withMandatoryOrigins(getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", ""), mandatoryOrigins),
-		PairingToken:   getEnv("PRINT_AGENT_PAIRING_TOKEN", ""),
-		SigningSecret:  getEnv("PRINT_AGENT_SIGNING_SECRET", ""),
+		Address:         getEnv("PRINT_AGENT_ADDR", "127.0.0.1:12345"),
+		Version:         getEnv("PRINT_AGENT_VERSION", "0.1.0"),
+		AllowedOrigins:  withMandatoryOrigins(getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", ""), mandatoryOrigins),
+		PairingToken:    getEnv("PRINT_AGENT_PAIRING_TOKEN", ""),
+		SigningSecret:   getEnv("PRINT_AGENT_SIGNING_SECRET", ""),
 		MaxClockSkewSec: getIntEnv("PRINT_AGENT_MAX_CLOCK_SKEW_SEC", 300),
 		RateLimitPerMin: getIntEnv("PRINT_AGENT_RATE_LIMIT_PER_MIN", 120),
-		QueueMaxSize:   getIntEnv("PRINT_AGENT_QUEUE_SIZE", 200),
-		MaxRetries:     getIntEnv("PRINT_AGENT_MAX_RETRIES", 3),
+		QueueMaxSize:    getIntEnv("PRINT_AGENT_QUEUE_SIZE", 200),
+		MaxRetries:      getIntEnv("PRINT_AGENT_MAX_RETRIES", 3),
 	}
 
 	srv, err := agent.NewServer(cfg)

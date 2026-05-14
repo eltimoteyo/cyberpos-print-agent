@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
-	"syscall"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 )
@@ -127,11 +127,11 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 	return writeRawToPrinter(printerName, data)
 }
 
-func escposInit() []byte { return []byte{0x1b, 0x40} }
-func escposAlignLeft() []byte { return []byte{0x1b, 0x61, 0x00} }
+func escposInit() []byte        { return []byte{0x1b, 0x40} }
+func escposAlignLeft() []byte   { return []byte{0x1b, 0x61, 0x00} }
 func escposAlignCenter() []byte { return []byte{0x1b, 0x61, 0x01} }
-func escposCutPartial() []byte { return []byte{0x1d, 0x56, 0x42, 0x00} }
-func escposOpenDrawer() []byte { return []byte{0x1b, 0x70, 0x00, 0x19, 0xfa} }
+func escposCutPartial() []byte  { return []byte{0x1d, 0x56, 0x42, 0x00} }
+func escposOpenDrawer() []byte  { return []byte{0x1b, 0x70, 0x00, 0x19, 0xfa} }
 
 type docInfo1 struct {
 	pDocName    *uint16

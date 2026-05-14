@@ -396,9 +396,9 @@ func (s *Server) processTicket(payload printTicketRequest) {
 		})
 		if reportErr != nil {
 			logStructured("warn", "print_job_report_failed", map[string]any{
-				"job_id": payload.JobID,
+				"job_id":  payload.JobID,
 				"sale_id": payload.SaleID,
-				"error": reportErr.Error(),
+				"error":   reportErr.Error(),
 			})
 		}
 
@@ -436,9 +436,9 @@ func (s *Server) processTicket(payload printTicketRequest) {
 	})
 	if reportErr != nil {
 		logStructured("warn", "print_job_report_failed", map[string]any{
-			"job_id": payload.JobID,
+			"job_id":  payload.JobID,
 			"sale_id": payload.SaleID,
-			"error": reportErr.Error(),
+			"error":   reportErr.Error(),
 		})
 	}
 
@@ -511,10 +511,10 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if origin != "" && !s.isOriginAllowed(origin) {
 			logStructured("warn", "request_rejected_origin", map[string]any{
-				"method": r.Method,
-				"path": r.URL.Path,
+				"method":    r.Method,
+				"path":      r.URL.Path,
 				"remote_ip": ip,
-				"origin": origin,
+				"origin":    origin,
 			})
 			writeError(w, http.StatusForbidden, "origin not allowed")
 			return
@@ -530,10 +530,10 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			logStructured("info", "http_request", map[string]any{
-				"method": r.Method,
-				"path": r.URL.Path,
-				"remote_ip": ip,
-				"status": http.StatusNoContent,
+				"method":      r.Method,
+				"path":        r.URL.Path,
+				"remote_ip":   ip,
+				"status":      http.StatusNoContent,
 				"duration_ms": time.Since(started).Milliseconds(),
 			})
 			return
@@ -546,11 +546,11 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 				w.Header().Set("Retry-After", "60")
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				logStructured("warn", "request_rate_limited", map[string]any{
-					"method": r.Method,
-					"path": r.URL.Path,
-					"remote_ip": ip,
+					"method":        r.Method,
+					"path":          r.URL.Path,
+					"remote_ip":     ip,
 					"limit_per_min": s.cfg.RateLimitPerMin,
-					"remaining": remaining,
+					"remaining":     remaining,
 				})
 				return
 			}
@@ -562,10 +562,10 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		logStructured("info", "http_request", map[string]any{
-			"method": r.Method,
-			"path": r.URL.Path,
-			"remote_ip": ip,
-			"status": rec.status,
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"remote_ip":   ip,
+			"status":      rec.status,
 			"duration_ms": time.Since(started).Milliseconds(),
 		})
 	})
@@ -668,7 +668,7 @@ func normalizeServerConfig(cfg ServerConfig) ServerConfig {
 
 func logStructured(level, event string, fields map[string]any) {
 	payload := map[string]any{
-		"ts": time.Now().UTC().Format(time.RFC3339),
+		"ts":    time.Now().UTC().Format(time.RFC3339),
 		"level": level,
 		"event": event,
 	}
