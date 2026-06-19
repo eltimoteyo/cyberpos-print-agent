@@ -1,7 +1,7 @@
 param(
   [string]$ApiBaseUrl = "https://api.createam.cloud/api/v1",
   [string]$InstallDir = "$env:ProgramFiles\CyberERP\PrintAgent",
-  [string]$TaskName = "CyberERP Print Agent"
+  [string]$ServiceName = "CyberERPPrintAgent"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,16 +32,25 @@ if ($manifest.sha256) {
   }
 }
 
-Write-Host "[update] Stopping running process"
-Get-Process -Name "cybererp-print-agent" -ErrorAction SilentlyContinue | Stop-Process -Force
+Write-Host "[update] Stopping service"
+$serviceExists = $false
+if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+  $serviceExists = $true
+  Stop-Service -Name $ServiceName -Force
+}
+
+if (-not $serviceExists) {
+  Write-Host "[update] No service found; stopping process instead"
+  Get-Process -Name "cybererp-print-agent" -ErrorAction SilentlyContinue | Stop-Process -Force
+}
 
 Write-Host "[update] Replacing executable"
 Copy-Item -Path $tmpExe -Destination $targetExe -Force
 Remove-Item $tmpExe -Force -ErrorAction SilentlyContinue
 
-Write-Host "[update] Restarting scheduled task"
-if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-  Start-ScheduledTask -TaskName $TaskName
+Write-Host "[update] Starting service"
+if ($serviceExists) {
+  Start-Service -Name $ServiceName
 } else {
   Start-Process -FilePath $targetExe -WindowStyle Hidden
 }

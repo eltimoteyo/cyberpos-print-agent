@@ -34,17 +34,36 @@ type Store struct {
 }
 
 func NewStore() (*Store, error) {
-	baseDir, err := os.UserConfigDir()
-	if err != nil {
-		return nil, err
+	return NewStoreWithDir("")
+}
+
+// NewStoreWithDir creates a store using the provided directory. If dir is empty,
+// it falls back to the user config dir for backwards compatibility, unless the
+// process is running as a Windows service in which case %PROGRAMDATA% is preferred.
+func NewStoreWithDir(dir string) (*Store, error) {
+	if dir == "" {
+		dir = defaultDataDir()
 	}
 
-	dir := filepath.Join(baseDir, "cybererp", "print-agent")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 
 	return &Store{path: filepath.Join(dir, "config.json")}, nil
+}
+
+func defaultDataDir() string {
+	if d := os.Getenv("PRINT_AGENT_DATA_DIR"); d != "" {
+		return d
+	}
+	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
+		return filepath.Join(pd, "CyberERP", "PrintAgent")
+	}
+	baseDir, err := os.UserConfigDir()
+	if err != nil {
+		baseDir = "."
+	}
+	return filepath.Join(baseDir, "cybererp", "print-agent")
 }
 
 func (s *Store) Save(cfg PrinterConfig) error {

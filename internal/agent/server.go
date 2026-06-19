@@ -28,6 +28,7 @@ type ServerConfig struct {
 	QueueMaxSize    int
 	MaxRetries      int
 	RateLimitPerMin int
+	DataDir         string
 }
 
 type Server struct {
@@ -41,6 +42,14 @@ type Server struct {
 	processed  map[string]processedPrintJob
 	rateMu     sync.Mutex
 	rate       map[string]rateCounter
+	wsReporter func(WSJobResultPayload) error
+}
+
+// SetWSReporter registers a callback used to report job results over the gateway WebSocket.
+func (s *Server) SetWSReporter(fn func(WSJobResultPayload) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.wsReporter = fn
 }
 
 type rateCounter struct {
@@ -73,7 +82,7 @@ type processedPrintJob struct {
 }
 
 func NewServer(cfg ServerConfig) (*Server, error) {
-	store, err := config.NewStore()
+	store, err := config.NewStoreWithDir(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +146,82 @@ func (s *Server) handlePrinters(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"printers": printers,
 	})
+}
+
+// printerInfos returns the current printer list formatted for gateway registration.
+func (s *Server) printerInfos() []map[string]any {
+	printers, _ := listPrinters()
+	out := make([]map[string]any, 0, len(printers))
+	for _, p := range printers {
+		out = append(out, map[string]any{
+			"name":       p.Name,
+			"default":    p.Default,
+			"connection": "usb",
+		})
+	}
+	return out
+}
+
+// EnqueueRemoteJob enqueues a print job received from the gateway WebSocket.
+func (s *Server) EnqueueRemoteJob(req printTicketRequest) error {
+	if len(req.Lines) == 0 {
+		return fmt.Errorf("lines must contain at least one line")
+	}
+
+	printerName := strings.TrimSpace(req.PrinterName)
+	if printerName == "" {
+		cfg, ok, err := s.store.Load()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		if !ok || strings.TrimSpace(cfg.PrinterName) == "" {
+			return fmt.Errorf("printerName is required when local config is missing")
+		}
+		printerName = strings.TrimSpace(cfg.PrinterName)
+	}
+
+	req.PrinterName = printerName
+	if strings.TrimSpace(req.Title) == "" {
+		req.Title = "CyberERP Ticket"
+	}
+
+	s.mu.Lock()
+	if req.JobID != "" {
+		if _, inProgress := s.processing[req.JobID]; inProgress {
+			s.mu.Unlock()
+			return fmt.Errorf("job %s already in progress", req.JobID)
+		}
+		if _, processed := s.processed[req.JobID]; processed {
+			s.mu.Unlock()
+			return fmt.Errorf("job %s already processed", req.JobID)
+		}
+		s.processing[req.JobID] = struct{}{}
+	}
+	s.stat.LastJobID = req.JobID
+	s.stat.LastSaleID = req.SaleID
+	s.stat.LastPrinterName = req.PrinterName
+	s.stat.LastPrintStatus = "queued"
+	s.stat.LastError = ""
+	s.stat.QueueDepth = len(s.ticketQ) + 1
+	s.stat.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.mu.Unlock()
+
+	select {
+	case s.ticketQ <- req:
+		return nil
+	default:
+		s.mu.Lock()
+		if req.JobID != "" {
+			delete(s.processing, req.JobID)
+		}
+		s.stat.LastPrintStatus = "failed"
+		s.stat.LastError = "print queue is full"
+		s.stat.FailedPrints++
+		s.stat.QueueDepth = len(s.ticketQ)
+		s.stat.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		s.mu.Unlock()
+		return fmt.Errorf("print queue is full")
+	}
 }
 
 func (s *Server) handleConfigUpsert(w http.ResponseWriter, r *http.Request) {
@@ -389,11 +474,18 @@ func (s *Server) processTicket(payload printTicketRequest) {
 		}
 
 		now := time.Now().UTC().Format(time.RFC3339)
-		reportErr := reportPrintJobResult(payload.APIBaseURL, payload.BearerToken, payload.JobID, "printed", map[string]any{
-			"saleId":      payload.SaleID,
-			"printerName": payload.PrinterName,
-			"printedAt":   now,
-		})
+		result := WSJobResultPayload{
+			JobID:  payload.JobID,
+			Status: "printed",
+			Result: map[string]any{
+				"saleId":      payload.SaleID,
+				"printerName": payload.PrinterName,
+				"printedAt":   now,
+			},
+		}
+		s.reportJobResult(payload.JobID, result)
+
+		reportErr := reportPrintJobResult(payload.APIBaseURL, payload.BearerToken, payload.JobID, "printed", result.Result)
 		if reportErr != nil {
 			logStructured("warn", "print_job_report_failed", map[string]any{
 				"job_id":  payload.JobID,
@@ -429,11 +521,19 @@ func (s *Server) processTicket(payload printTicketRequest) {
 	if lastErr != nil {
 		errMessage = lastErr.Error()
 	}
-	reportErr := reportPrintJobResult(payload.APIBaseURL, payload.BearerToken, payload.JobID, "failed", map[string]any{
-		"saleId":      payload.SaleID,
-		"printerName": payload.PrinterName,
-		"error":       errMessage,
-	})
+	result := WSJobResultPayload{
+		JobID:        payload.JobID,
+		Status:       "failed",
+		ErrorMessage: errMessage,
+		Result: map[string]any{
+			"saleId":      payload.SaleID,
+			"printerName": payload.PrinterName,
+			"error":       errMessage,
+		},
+	}
+	s.reportJobResult(payload.JobID, result)
+
+	reportErr := reportPrintJobResult(payload.APIBaseURL, payload.BearerToken, payload.JobID, "failed", result.Result)
 	if reportErr != nil {
 		logStructured("warn", "print_job_report_failed", map[string]any{
 			"job_id":  payload.JobID,
@@ -463,6 +563,28 @@ func (s *Server) processTicket(payload printTicketRequest) {
 	s.stat.QueueDepth = len(s.ticketQ)
 	s.stat.LastUpdatedAt = now
 	s.mu.Unlock()
+}
+
+// reportJobResult forwards the result to the gateway WebSocket reporter if available.
+func (s *Server) reportJobResult(jobID string, result WSJobResultPayload) {
+	if strings.TrimSpace(jobID) == "" {
+		return
+	}
+
+	s.mu.RLock()
+	reporter := s.wsReporter
+	s.mu.RUnlock()
+
+	if reporter == nil {
+		return
+	}
+
+	if err := reporter(result); err != nil {
+		logStructured("warn", "ws_job_result_report_failed", map[string]any{
+			"job_id": jobID,
+			"error":  err.Error(),
+		})
+	}
 }
 
 func (s *Server) trimProcessedLocked() {
