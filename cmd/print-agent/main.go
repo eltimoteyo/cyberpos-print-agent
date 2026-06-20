@@ -14,6 +14,18 @@ import (
 )
 
 func main() {
+	// Subcommands handled before env loading so they can run without agent.env.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "install":
+			selfInstall(os.Args[2:])
+			return
+		case "uninstall":
+			selfUninstall()
+			return
+		}
+	}
+
 	// Load optional agent.env from the executable directory so Windows services
 	// and scripted installs can configure the process without registry tweaks.
 	loadAgentEnvFile()
