@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "number=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Windows exe
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.number }}"
+          go build -ldflags "-H=windowsgui -X main.Version=$version" -o cybererp-print-agent.exe ./cmd/print-agent/
+          Write-Host "Built cybererp-print-agent.exe — size: $((Get-Item cybererp-print-agent.exe).Length) bytes"
+
+      - name: Calculate SHA256
+        id: sha256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash cybererp-print-agent.exe -Algorithm SHA256).Hash.ToUpper()
+          echo "value=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA256: $hash"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cybererp-print-agent.exe
+          generate_release_notes: true
+          body: |
+            ## CyberPOS Print Agent ${{ steps.version.outputs.tag }}
+
+            **SHA256:** `${{ steps.sha256.outputs.value }}`
+
+      - name: Update VPS
+        if: ${{ secrets.VPS_HOST != '' }}
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VERSION: ${{ steps.version.outputs.number }}
+          SHA256: ${{ steps.sha256.outputs.value }}
+          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/cybererp-print-agent.exe
+        run: |
+          echo "$VPS_SSH_KEY" > /tmp/vps_key
+          chmod 600 /tmp/vps_key
+
+          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" bash <<EOF
+            set -e
+            sed -i "s|PRINT_AGENT_VERSION=.*|PRINT_AGENT_VERSION=${VERSION}|" /opt/cyberpos/docker-compose.prod.yml
+            sed -i "s|PRINT_AGENT_SHA256=.*|PRINT_AGENT_SHA256=${SHA256}|" /opt/cyberpos/docker-compose.prod.yml
+            sed -i "s|PRINT_AGENT_INSTALLER_URL=.*|PRINT_AGENT_INSTALLER_URL=${DOWNLOAD_URL}|" /opt/cyberpos/docker-compose.prod.yml
+            cd /opt/cyberpos && docker-compose -f docker-compose.prod.yml up -d api-gateway
+            echo "VPS updated to print-agent ${VERSION}"
+          EOF
+
+          rm -f /tmp/vps_key
