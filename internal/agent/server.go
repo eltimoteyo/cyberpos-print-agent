@@ -263,7 +263,8 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, "config not found")
+		// Agente instalado pero sin impresora configurada aún — devolver config vacía
+		writeJSON(w, http.StatusOK, map[string]any{"config": nil})
 		return
 	}
 
