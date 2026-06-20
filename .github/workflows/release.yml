@@ -15,8 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
@@ -25,18 +24,19 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION="${{ github.ref_name }}"
-          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "number=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          TAG="${{ github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "number=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build Windows exe
+      - name: Build
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.number }}"
-          go build -ldflags "-H=windowsgui -X main.Version=$version" -o cybererp-print-agent.exe ./cmd/print-agent/
-          Write-Host "Built cybererp-print-agent.exe — size: $((Get-Item cybererp-print-agent.exe).Length) bytes"
+          $v = "${{ steps.version.outputs.number }}"
+          go build -ldflags "-H=windowsgui -X main.Version=$v" -o cybererp-print-agent.exe ./cmd/print-agent/
+          $size = (Get-Item cybererp-print-agent.exe).Length
+          Write-Host "Built cybererp-print-agent.exe ($size bytes)"
 
-      - name: Calculate SHA256
+      - name: SHA256
         id: sha256
         shell: pwsh
         run: |
@@ -44,15 +44,18 @@ jobs:
           echo "value=$hash" >> $env:GITHUB_OUTPUT
           Write-Host "SHA256: $hash"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: cybererp-print-agent.exe
-          generate_release_notes: true
-          body: |
-            ## CyberPOS Print Agent ${{ steps.version.outputs.tag }}
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          SHA="${{ steps.sha256.outputs.value }}"
+          gh release create "$TAG" cybererp-print-agent.exe \
+            --title "Print Agent $TAG" \
+            --notes "## CyberPOS Print Agent $TAG
 
-            **SHA256:** `${{ steps.sha256.outputs.value }}`
+          **SHA256:** \`$SHA\`"
 
       - name: Update VPS
         if: ${{ secrets.VPS_HOST != '' }}
@@ -61,20 +64,16 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VERSION: ${{ steps.version.outputs.number }}
-          SHA256: ${{ steps.sha256.outputs.value }}
-          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/cybererp-print-agent.exe
         run: |
           echo "$VPS_SSH_KEY" > /tmp/vps_key
           chmod 600 /tmp/vps_key
-
-          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" bash <<EOF
-            set -e
-            sed -i "s|PRINT_AGENT_VERSION=.*|PRINT_AGENT_VERSION=${VERSION}|" /opt/cyberpos/docker-compose.prod.yml
-            sed -i "s|PRINT_AGENT_SHA256=.*|PRINT_AGENT_SHA256=${SHA256}|" /opt/cyberpos/docker-compose.prod.yml
-            sed -i "s|PRINT_AGENT_INSTALLER_URL=.*|PRINT_AGENT_INSTALLER_URL=${DOWNLOAD_URL}|" /opt/cyberpos/docker-compose.prod.yml
-            cd /opt/cyberpos && docker-compose -f docker-compose.prod.yml up -d api-gateway
-            echo "VPS updated to print-agent ${VERSION}"
-          EOF
-
+          TAG="${{ steps.version.outputs.tag }}"
+          VER="${{ steps.version.outputs.number }}"
+          SHA="${{ steps.sha256.outputs.value }}"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/cybererp-print-agent.exe"
+          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" \
+            "sed -i 's|PRINT_AGENT_VERSION=.*|PRINT_AGENT_VERSION=${VER}|' /opt/cyberpos/docker-compose.prod.yml && \
+             sed -i 's|PRINT_AGENT_SHA256=.*|PRINT_AGENT_SHA256=${SHA}|' /opt/cyberpos/docker-compose.prod.yml && \
+             sed -i 's|PRINT_AGENT_INSTALLER_URL=.*|PRINT_AGENT_INSTALLER_URL=${URL}|' /opt/cyberpos/docker-compose.prod.yml && \
+             cd /opt/cyberpos && docker-compose -f docker-compose.prod.yml up -d api-gateway"
           rm -f /tmp/vps_key
