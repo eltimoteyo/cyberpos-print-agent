@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -27,7 +28,7 @@ const (
 func selfInstall(args []string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Println("Uso: cybererp-print-agent.exe install --token TOKEN [opciones]")
+		fmt.Println("Uso: cybererp-print-agent.exe install --token TOKEN | --token-file PATH [opciones]")
 		fmt.Println()
 		fmt.Println("Opciones:")
 		fs.PrintDefaults()
@@ -35,17 +36,28 @@ func selfInstall(args []string) {
 		fmt.Println("Genera el token en: CyberERP > Configuración de Impresión > Tokens de Agente")
 	}
 
-	token := fs.String("token", "", "Token de autenticación del agente (requerido)")
+	token := fs.String("token", "", "Token de autenticación del agente")
+	tokenFile := fs.String("token-file", "", "Ruta a archivo que contiene el token (alternativa segura a --token)")
 	gateway := fs.String("gateway-ws", "wss://api.createam.cloud/api/v1/print-agent/ws", "URL WebSocket del gateway")
 	name := fs.String("name", "", "Nombre descriptivo para este agente (ej: Caja 1)")
 	addr := fs.String("addr", "127.0.0.1:12345", "Dirección HTTP local del agente")
 
 	_ = fs.Parse(args)
 
-	if *token == "" {
+	resolvedToken := *token
+	if resolvedToken == "" && *tokenFile != "" {
+		data, err := os.ReadFile(*tokenFile)
+		if err != nil {
+			log.Fatalf("ERROR: no se pudo leer token-file: %v", err)
+		}
+		resolvedToken = strings.TrimSpace(string(data))
+		_ = os.Remove(*tokenFile)
+	}
+
+	if resolvedToken == "" {
 		fs.Usage()
 		fmt.Println()
-		log.Fatal("ERROR: --token es requerido.")
+		log.Fatal("ERROR: --token o --token-file es requerido.")
 	}
 
 	agentName := *name
@@ -86,7 +98,7 @@ func selfInstall(args []string) {
 			"PRINT_AGENT_HOSTNAME=%s\n"+
 			"PRINT_AGENT_ADDR=%s\n"+
 			"PRINT_AGENT_DATA_DIR=%s\n",
-		*token, *gateway, agentName, *addr, dataDir,
+		resolvedToken, *gateway, agentName, *addr, dataDir,
 	)
 	envFile := filepath.Join(installDir, "agent.env")
 	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
