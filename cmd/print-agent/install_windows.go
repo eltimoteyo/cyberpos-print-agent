@@ -124,9 +124,12 @@ func selfInstall(args []string) {
 	}
 
 	// 6. Registrar el servicio
+	// Path must be quoted: "Program Files" contains spaces and Win32 CreateService
+	// treats unquoted paths with spaces as separate tokens, causing start failures.
+	quotedExe := `"` + destExe + `"`
 	s, err := m.CreateService(
 		svcName,
-		destExe,
+		quotedExe,
 		mgr.Config{
 			StartType:        mgr.StartAutomatic,
 			DisplayName:      svcDisplay,
