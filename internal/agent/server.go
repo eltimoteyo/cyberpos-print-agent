@@ -133,6 +133,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /print/test", s.handlePrintTest)
 	s.mux.HandleFunc("POST /print/ticket", s.handlePrintTicket)
 	s.mux.HandleFunc("GET /status", s.handleStatus)
+	s.mux.HandleFunc("GET /jobs/recent", s.handleJobsRecent)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -634,6 +635,45 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"status":   stat,
 		"agent_id": agentID,
 	})
+}
+
+type recentJobEntry struct {
+	JobID       string `json:"job_id"`
+	PrinterName string `json:"printer_name"`
+	Status      string `json:"status"`
+	Error       string `json:"error,omitempty"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+func (s *Server) handleJobsRecent(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	jobs := make([]recentJobEntry, 0, len(s.processed)+len(s.processing))
+	for jobID, job := range s.processed {
+		jobs = append(jobs, recentJobEntry{
+			JobID:       jobID,
+			PrinterName: job.PrinterName,
+			Status:      job.Status,
+			Error:       job.Error,
+			UpdatedAt:   job.UpdatedAt,
+		})
+	}
+	for jobID := range s.processing {
+		jobs = append(jobs, recentJobEntry{
+			JobID:     jobID,
+			Status:    "processing",
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	s.mu.RUnlock()
+
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].UpdatedAt > jobs[j].UpdatedAt
+	})
+	if len(jobs) > 30 {
+		jobs = jobs[:30]
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -53,6 +55,68 @@ func listPrinters() ([]PrinterInfo, error) {
 	return []PrinterInfo{one}, nil
 }
 
+// tcpAddressForPrinter looks up the printer's Windows port name and returns
+// an IP:port string if the port is a network TCP/IP port, or "" otherwise.
+// Recognized formats: "IP_192.168.1.250", "192.168.1.250", "192.168.1.250:9100".
+func tcpAddressForPrinter(printerName string) string {
+	printers, err := listPrinters()
+	if err != nil {
+		return ""
+	}
+	for _, p := range printers {
+		if !strings.EqualFold(p.Name, printerName) {
+			continue
+		}
+		port := strings.TrimSpace(p.PortName)
+		// "IP_x.x.x.x" — standard Windows TCP/IP port
+		if strings.HasPrefix(port, "IP_") {
+			return net.JoinHostPort(port[3:], "9100")
+		}
+		// Already "x.x.x.x" or "x.x.x.x:port"
+		host, rawPort, err := net.SplitHostPort(port)
+		if err != nil {
+			// No port part — try bare IP
+			if net.ParseIP(port) != nil {
+				return net.JoinHostPort(port, "9100")
+			}
+			return ""
+		}
+		if _, err := strconv.Atoi(rawPort); err != nil {
+			return ""
+		}
+		return net.JoinHostPort(host, rawPort)
+	}
+	return ""
+}
+
+// writeRawViaTCP sends raw bytes to a printer via a direct TCP socket (port 9100).
+// This bypasses the Windows print spooler and works with any ESC/POS network printer.
+func writeRawViaTCP(address string, data []byte) error {
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("TCP connect to %s failed: %w", address, err)
+	}
+	defer conn.Close()
+	conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
+	n, err := conn.Write(data)
+	if err != nil {
+		return fmt.Errorf("TCP write failed: %w", err)
+	}
+	if n != len(data) {
+		return fmt.Errorf("TCP write incomplete: %d/%d bytes", n, len(data))
+	}
+	return nil
+}
+
+// dispatchRaw sends raw ESC/POS bytes to the named printer.
+// It automatically uses TCP/IP for network printers and the Windows spooler for USB.
+func dispatchRaw(printerName string, data []byte) error {
+	if addr := tcpAddressForPrinter(printerName); addr != "" {
+		return writeRawViaTCP(addr, data)
+	}
+	return writeRawToPrinter(printerName, data)
+}
+
 func sendTestPrint(printerName string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("test print is currently supported only on Windows")
@@ -75,7 +139,7 @@ func sendTestPrint(printerName string) error {
 	data = append(data, []byte(content)...)
 	data = append(data, escposCutPartial()...)
 
-	return writeRawToPrinter(printerName, data)
+	return dispatchRaw(printerName, data)
 }
 
 func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool) error {
@@ -124,7 +188,7 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 		data = append(data, escposCutPartial()...)
 	}
 
-	return writeRawToPrinter(printerName, data)
+	return dispatchRaw(printerName, data)
 }
 
 func escposInit() []byte        { return []byte{0x1b, 0x40} }
