@@ -215,13 +215,12 @@ func copyFileSafe(src, dst string) error {
 	}
 	defer in.Close()
 
-	// Escribir en archivo temporal primero, luego renombrar (atómico)
+	// Escribir en archivo temporal primero, luego renombrar
 	tmp := dst + ".tmp"
 	out, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
-
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
 		os.Remove(tmp)
@@ -229,7 +228,17 @@ func copyFileSafe(src, dst string) error {
 	}
 	out.Close()
 
-	// Eliminar destino anterior si existe y renombrar
-	_ = os.Remove(dst)
-	return os.Rename(tmp, dst)
+	// Eliminar destino anterior e intentar renombrar con reintentos.
+	// Windows puede mantener el handle del exe unos instantes tras detener
+	// el servicio (antivirus, indexador, etc.).
+	var lastErr error
+	for attempt := 1; attempt <= 10; attempt++ {
+		_ = os.Remove(dst)
+		if lastErr = os.Rename(tmp, dst); lastErr == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+	}
+	os.Remove(tmp)
+	return fmt.Errorf("no se pudo reemplazar el ejecutable tras 10 intentos: %w", lastErr)
 }
