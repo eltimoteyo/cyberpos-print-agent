@@ -315,19 +315,28 @@ func (s *Server) handlePrintTest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	jobID := fmt.Sprintf("test-%d", time.Now().UnixMilli())
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	if err := sendTestPrint(printerName); err != nil {
 		s.mu.Lock()
 		s.stat.LastPrinterName = printerName
 		s.stat.LastPrintStatus = "failed"
 		s.stat.LastError = err.Error()
 		s.stat.FailedPrints++
-		s.stat.LastUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		s.stat.LastUpdatedAt = now
+		s.processed[jobID] = processedPrintJob{
+			Status:      "failed",
+			PrinterName: printerName,
+			Error:       err.Error(),
+			UpdatedAt:   now,
+		}
+		s.trimProcessedLocked()
 		s.mu.Unlock()
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("test print failed: %v", err))
 		return
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
 	s.mu.Lock()
 	s.stat.LastPrinterName = printerName
 	s.stat.LastPrintStatus = "success"
@@ -335,11 +344,18 @@ func (s *Server) handlePrintTest(w http.ResponseWriter, r *http.Request) {
 	s.stat.LastPrintAt = now
 	s.stat.SuccessfulPrints++
 	s.stat.LastUpdatedAt = now
+	s.processed[jobID] = processedPrintJob{
+		Status:      "printed",
+		PrinterName: printerName,
+		UpdatedAt:   now,
+	}
+	s.trimProcessedLocked()
 	s.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"message":     "test print sent",
 		"printerName": printerName,
+		"jobId":       jobID,
 	})
 }
 
@@ -664,6 +680,9 @@ func (s *Server) handleJobsRecent(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		})
 	}
+	lastStatus := s.stat.LastPrintStatus
+	lastError := s.stat.LastError
+	lastPrinter := s.stat.LastPrinterName
 	s.mu.RUnlock()
 
 	sort.Slice(jobs, func(i, j int) bool {
@@ -673,7 +692,14 @@ func (s *Server) handleJobsRecent(w http.ResponseWriter, r *http.Request) {
 		jobs = jobs[:30]
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"jobs": jobs,
+		"agent_status": map[string]any{
+			"last_print_status":  lastStatus,
+			"last_error":         lastError,
+			"last_printer":       lastPrinter,
+		},
+	})
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {
