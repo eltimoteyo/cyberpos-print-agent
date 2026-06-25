@@ -259,7 +259,22 @@ func (c *WSClient) handleJob(raw json.RawMessage) {
 	if format == "" {
 		format = "ticket"
 	}
-	if format != "ticket" {
+
+	switch format {
+	case "test":
+		printerName := payload.PrinterName
+		if printerName == "" {
+			if pn, ok := payload.Payload["printer_name"].(string); ok {
+				printerName = pn
+			}
+		}
+		go c.srv.RunTestJob(payload.JobID, printerName)
+		return
+
+	case "ticket":
+		// handled below
+
+	default:
 		log.Printf("[ws] job format %q not yet supported by this agent", format)
 		c.reportResult(WSJobResultPayload{
 			JobID:        payload.JobID,

@@ -282,6 +282,62 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// RunTestJob executes a test print job received via WebSocket and reports the result
+// back to the gateway. Intended to be called in a goroutine by the WS client.
+func (s *Server) RunTestJob(jobID, printerName string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if printerName == "" {
+		cfg, ok, err := s.store.Load()
+		if err == nil && ok {
+			printerName = strings.TrimSpace(cfg.PrinterName)
+		}
+	}
+
+	err := sendTestPrint(printerName)
+
+	status := "printed"
+	errMsg := ""
+	if err != nil {
+		status = "failed"
+		errMsg = err.Error()
+	}
+
+	result := WSJobResultPayload{
+		JobID:        jobID,
+		Status:       status,
+		ErrorMessage: errMsg,
+	}
+	if status == "printed" {
+		ts := time.Now().Unix()
+		result.PrintedAt = &ts
+	}
+
+	s.mu.Lock()
+	if status == "printed" {
+		s.stat.SuccessfulPrints++
+		s.stat.LastPrintAt = now
+	} else {
+		s.stat.FailedPrints++
+		s.stat.LastError = errMsg
+	}
+	s.stat.LastPrinterName = printerName
+	s.stat.LastPrintStatus = status
+	s.stat.LastUpdatedAt = now
+	if jobID != "" {
+		s.processed[jobID] = processedPrintJob{
+			Status:      status,
+			PrinterName: printerName,
+			Error:       errMsg,
+			UpdatedAt:   now,
+		}
+		s.trimProcessedLocked()
+	}
+	s.mu.Unlock()
+
+	s.reportJobResult(jobID, result)
+}
+
 type testPrintRequest struct {
 	PrinterName string `json:"printerName"`
 }
