@@ -23,6 +23,46 @@ type PrinterInfo struct {
 	DriverName  string `json:"driverName"`
 }
 
+// virtualPrinterPorts identifies Windows port types that don't map to physical hardware.
+// Sending raw ESC/POS bytes to these ports would fail or open an interactive save dialog.
+var virtualPrinterPorts = map[string]bool{
+	"portprompt:": true, // "Save As" dialog — Microsoft Print to PDF, XPS
+	"shrfax:":     true, // Windows Fax
+	"nul:":        true, // NUL device
+}
+
+// virtualPrinterKeywords identifies common software/virtual printers by name fragment.
+var virtualPrinterKeywords = []string{
+	"microsoft print to pdf",
+	"microsoft xps document writer",
+	"onenote",
+	"fax",
+	"pdf24",
+	"adobe pdf",
+	"cutepdf",
+	"dopdf",
+	"foxit",
+	"bullzip",
+	"pdfcreator",
+	"print to pdf",
+	"xps document writer",
+}
+
+// isVirtualPrinter returns true for printers that don't accept raw ESC/POS bytes
+// or require interactive user input (e.g. a "Save As" dialog).
+func isVirtualPrinter(p PrinterInfo) bool {
+	if virtualPrinterPorts[strings.ToLower(strings.TrimSpace(p.PortName))] {
+		return true
+	}
+	name := strings.ToLower(strings.TrimSpace(p.Name))
+	for _, kw := range virtualPrinterKeywords {
+		if strings.Contains(name, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 func listPrinters() ([]PrinterInfo, error) {
 	if runtime.GOOS != "windows" {
 		return []PrinterInfo{}, nil
@@ -42,17 +82,22 @@ func listPrinters() ([]PrinterInfo, error) {
 		return []PrinterInfo{}, nil
 	}
 
-	var many []PrinterInfo
-	if err := json.Unmarshal([]byte(trimmed), &many); err == nil {
-		return many, nil
+	var all []PrinterInfo
+	if err := json.Unmarshal([]byte(trimmed), &all); err != nil {
+		var one PrinterInfo
+		if err := json.Unmarshal([]byte(trimmed), &one); err != nil {
+			return nil, fmt.Errorf("invalid printer JSON response")
+		}
+		all = []PrinterInfo{one}
 	}
 
-	var one PrinterInfo
-	if err := json.Unmarshal([]byte(trimmed), &one); err != nil {
-		return nil, fmt.Errorf("invalid printer JSON response")
+	real := all[:0]
+	for _, p := range all {
+		if !isVirtualPrinter(p) {
+			real = append(real, p)
+		}
 	}
-
-	return []PrinterInfo{one}, nil
+	return real, nil
 }
 
 // tcpAddressForPrinter looks up the printer's Windows port name and returns
