@@ -37,12 +37,20 @@ type Server struct {
 	store      *config.Store
 	mu         sync.RWMutex
 	stat       agentStatus
+	agentID    string
 	ticketQ    chan printTicketRequest
 	processing map[string]struct{}
 	processed  map[string]processedPrintJob
 	rateMu     sync.Mutex
 	rate       map[string]rateCounter
 	wsReporter func(WSJobResultPayload) error
+}
+
+// SetAgentID stores the stable agent ID so /status can expose it to the frontend.
+func (s *Server) SetAgentID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentID = id
 }
 
 // SetWSReporter registers a callback used to report job results over the gateway WebSocket.
@@ -619,10 +627,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	stat := s.stat
 	stat.QueueDepth = len(s.ticketQ)
 	stat.QueueCapacity = cap(s.ticketQ)
+	agentID := s.agentID
 	s.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status": stat,
+		"status":   stat,
+		"agent_id": agentID,
 	})
 }
 

@@ -86,8 +86,9 @@ func (c *WSClient) Run(stopCh <-chan struct{}) {
 	// results are forwarded to the gateway.
 	c.srv.SetWSReporter(c.reportResult)
 
-	// Ensure we have a stable agent ID
+	// Ensure we have a stable agent ID and expose it via /status
 	c.agentID = c.ensureAgentID()
+	c.srv.SetAgentID(c.agentID)
 
 	backoff := 1 * time.Second
 	maxBackoff := 60 * time.Second
