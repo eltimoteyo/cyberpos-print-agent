@@ -124,12 +124,12 @@ func selfInstall(args []string) {
 	}
 
 	// 6. Registrar el servicio
-	// Path must be quoted: "Program Files" contains spaces and Win32 CreateService
-	// treats unquoted paths with spaces as separate tokens, causing start failures.
-	quotedExe := `"` + destExe + `"`
+	// golang.org/x/sys/windows/svc/mgr already quotes paths with spaces internally;
+	// passing a pre-quoted string causes double-quoting ("\"path\"") in the registry,
+	// which breaks SCM parsing and returns ERROR_ACCESS_DENIED on StartService.
 	s, err := m.CreateService(
 		svcName,
-		quotedExe,
+		destExe,
 		mgr.Config{
 			StartType:        mgr.StartAutomatic,
 			DisplayName:      svcDisplay,
