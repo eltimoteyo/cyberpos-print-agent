@@ -80,7 +80,35 @@ func selfInstall(args []string) {
 	}
 	fmt.Printf("  [OK] Directorios listos\n")
 
-	// 2. Copiar exe a Program Files
+	// 2. Conectar al Service Control Manager (necesario antes de detener el servicio)
+	m, err := mgr.Connect()
+	if err != nil {
+		log.Fatalf("ERROR: no se pudo conectar al Service Control Manager.\n¿Ejecutaste como Administrador?\nDetalle: %v", err)
+	}
+	defer m.Disconnect()
+
+	// 3. Detener y eliminar versión anterior ANTES de copiar el exe.
+	//    El servicio en ejecución mantiene el archivo bloqueado; si copiamos primero
+	//    obtenemos "Access is denied" al intentar renombrar el .tmp.
+	if existing, err := m.OpenService(svcName); err == nil {
+		fmt.Println("  [..] Deteniendo servicio anterior...")
+		_, _ = existing.Control(svc.Stop)
+		// Esperar hasta 10 s a que el proceso libere el archivo
+		for i := 0; i < 20; i++ {
+			time.Sleep(500 * time.Millisecond)
+			status, err := existing.Query()
+			if err != nil || status.State == svc.Stopped {
+				break
+			}
+		}
+		_ = existing.Delete()
+		existing.Close()
+		// Pausa adicional para que Windows libere el handle del exe
+		time.Sleep(1 * time.Second)
+		fmt.Println("  [OK] Servicio anterior eliminado")
+	}
+
+	// 4. Copiar exe a Program Files (ahora que el servicio está detenido)
 	exePath, err := os.Executable()
 	if err != nil {
 		log.Fatalf("ERROR: no se pudo resolver ruta del ejecutable: %v", err)
@@ -91,7 +119,7 @@ func selfInstall(args []string) {
 	}
 	fmt.Printf("  [OK] Ejecutable copiado a %s\n", destExe)
 
-	// 3. Escribir agent.env con la configuración
+	// 5. Escribir agent.env con la configuración
 	envContent := fmt.Sprintf(
 		"PRINT_AGENT_TOKEN=%s\n"+
 			"PRINT_AGENT_GATEWAY_WS_URL=%s\n"+
@@ -105,23 +133,6 @@ func selfInstall(args []string) {
 		log.Fatalf("ERROR: no se pudo escribir agent.env: %v", err)
 	}
 	fmt.Printf("  [OK] Configuración guardada en %s\n", envFile)
-
-	// 4. Conectar al Service Control Manager
-	m, err := mgr.Connect()
-	if err != nil {
-		log.Fatalf("ERROR: no se pudo conectar al Service Control Manager.\n¿Ejecutaste como Administrador?\nDetalle: %v", err)
-	}
-	defer m.Disconnect()
-
-	// 5. Desinstalar versión anterior si existe
-	if existing, err := m.OpenService(svcName); err == nil {
-		fmt.Println("  [..] Deteniendo servicio anterior...")
-		_, _ = existing.Control(svc.Stop)
-		time.Sleep(2 * time.Second)
-		_ = existing.Delete()
-		existing.Close()
-		fmt.Println("  [OK] Servicio anterior eliminado")
-	}
 
 	// 6. Registrar el servicio
 	// golang.org/x/sys/windows/svc/mgr already quotes paths with spaces internally;
