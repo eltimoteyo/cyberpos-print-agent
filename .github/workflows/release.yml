@@ -73,6 +73,21 @@ jobs:
           echo "$VPS_SSH_KEY" > /tmp/vps_key
           chmod 600 /tmp/vps_key
           URL="https://github.com/${REPO}/releases/download/${TAG}/cybererp-print-agent.exe"
-          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" \
-            "sed -i 's|PRINT_AGENT_VERSION=.*|PRINT_AGENT_VERSION=${VER}|' /opt/cyberpos/docker-compose.prod.yml && sed -i 's|PRINT_AGENT_SHA256=.*|PRINT_AGENT_SHA256=${SHA}|' /opt/cyberpos/docker-compose.prod.yml && sed -i 's|PRINT_AGENT_INSTALLER_URL=.*|PRINT_AGENT_INSTALLER_URL=${URL}|' /opt/cyberpos/docker-compose.prod.yml && cd /opt/cyberpos && docker-compose -f docker-compose.prod.yml up -d api-gateway"
+          ssh -i /tmp/vps_key -o StrictHostKeyChecking=no "${VPS_USER}@${VPS_HOST}" << EOF
+            set -e
+            cd /opt/cyberpos
+            # Update .env.prod (same file the gateway deploy uses)
+            touch .env.prod
+            for KEY_VAL in "PRINT_AGENT_VERSION=${VER}" "PRINT_AGENT_SHA256=${SHA}" "PRINT_AGENT_INSTALLER_URL=${URL}"; do
+              KEY="\${KEY_VAL%%=*}"
+              VAL="\${KEY_VAL#*=}"
+              if grep -q "^\${KEY}=" .env.prod; then
+                sed -i "s|^\${KEY}=.*|\${KEY}=\${VAL}|" .env.prod
+              else
+                echo "\${KEY}=\${VAL}" >> .env.prod
+              fi
+            done
+            docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d api-gateway
+            echo "Updated print-agent to ${VER}"
+          EOF
           rm -f /tmp/vps_key
