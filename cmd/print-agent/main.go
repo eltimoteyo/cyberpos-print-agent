@@ -13,6 +13,9 @@ import (
 	"print-agent-go/internal/agent"
 )
 
+// Version is set at build time via -ldflags "-X main.Version=x.y.z".
+var Version = "0.1.0"
+
 func main() {
 	// Subcommands handled before env loading so they can run without agent.env.
 	if len(os.Args) > 1 {
@@ -123,7 +126,7 @@ func buildServerConfig() agent.ServerConfig {
 
 	return agent.ServerConfig{
 		Address:         getEnv("PRINT_AGENT_ADDR", "127.0.0.1:12345"),
-		Version:         getEnv("PRINT_AGENT_VERSION", "0.1.0"),
+		Version:         getEnv("PRINT_AGENT_VERSION", Version),
 		AllowedOrigins:  withMandatoryOrigins(getStringSliceEnv("PRINT_AGENT_ALLOWED_ORIGINS", ""), mandatoryOrigins),
 		PairingToken:    getEnv("PRINT_AGENT_PAIRING_TOKEN", ""),
 		SigningSecret:   getEnv("PRINT_AGENT_SIGNING_SECRET", ""),

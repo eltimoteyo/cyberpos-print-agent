@@ -125,8 +125,9 @@ func selfInstall(args []string) {
 			"PRINT_AGENT_GATEWAY_WS_URL=%s\n"+
 			"PRINT_AGENT_HOSTNAME=%s\n"+
 			"PRINT_AGENT_ADDR=%s\n"+
-			"PRINT_AGENT_DATA_DIR=%s\n",
-		resolvedToken, *gateway, agentName, *addr, dataDir,
+			"PRINT_AGENT_DATA_DIR=%s\n"+
+			"PRINT_AGENT_VERSION=%s\n",
+		resolvedToken, *gateway, agentName, *addr, dataDir, Version,
 	)
 	envFile := filepath.Join(installDir, "agent.env")
 	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
