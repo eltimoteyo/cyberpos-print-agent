@@ -93,19 +93,28 @@ func selfInstall(args []string) {
 	if existing, err := m.OpenService(svcName); err == nil {
 		fmt.Println("  [..] Deteniendo servicio anterior...")
 		_, _ = existing.Control(svc.Stop)
-		// Esperar hasta 10 s a que el proceso libere el archivo
-		for i := 0; i < 20; i++ {
+		// Esperar hasta 20 s a que el proceso libere el archivo. Antes eran 10 y,
+		// si no le daba tiempo, el servicio se borraba IGUAL: quedaba un proceso
+		// huerfano sujetando el .exe y sin servicio que detener, asi que la
+		// siguiente instalacion no encontraba nada que parar y moria con
+		// "Access is denied" para siempre.
+		stopped := false
+		for i := 0; i < 40; i++ {
 			time.Sleep(500 * time.Millisecond)
-			status, err := existing.Query()
-			if err != nil || status.State == svc.Stopped {
+			status, qerr := existing.Query()
+			if qerr != nil || status.State == svc.Stopped {
+				stopped = true
 				break
 			}
 		}
 		_ = existing.Delete()
 		existing.Close()
-		// Pausa adicional para que Windows libere el handle del exe
 		time.Sleep(1 * time.Second)
-		fmt.Println("  [OK] Servicio anterior eliminado")
+		if stopped {
+			fmt.Println("  [OK] Servicio anterior eliminado")
+		} else {
+			fmt.Println("  [!!] El servicio anterior no confirmo su parada; se continua igualmente")
+		}
 	}
 
 	// 4. Copiar exe a Program Files (ahora que el servicio está detenido)
@@ -114,8 +123,28 @@ func selfInstall(args []string) {
 		log.Fatalf("ERROR: no se pudo resolver ruta del ejecutable: %v", err)
 	}
 	destExe := filepath.Join(installDir, "cybererp-print-agent.exe")
+	cleanupOldExecutables(installDir)
 	if err := copyFileSafe(exePath, destExe); err != nil {
-		log.Fatalf("ERROR: no se pudo copiar ejecutable a %s: %v", destExe, err)
+		// Ultimo recurso: Windows NO deja sobrescribir un ejecutable en uso,
+		// pero SI deja renombrarlo. Se aparta el viejo y se copia encima; el
+		// apartado se borra en la siguiente instalacion, cuando ya nadie lo
+		// tenga abierto.
+		aside := fmt.Sprintf("%s.old-%d", destExe, time.Now().Unix())
+		if rerr := os.Rename(destExe, aside); rerr == nil {
+			err = copyFileSafe(exePath, destExe)
+			if err == nil {
+				fmt.Println("  [OK] Se aparto el ejecutable anterior, que seguia en uso")
+				_ = os.Remove(aside)
+			} else {
+				_ = os.Rename(aside, destExe) // dejar las cosas como estaban
+			}
+		}
+		if err != nil {
+			log.Fatalf("ERROR: no se pudo copiar ejecutable a %s: %v\n"+
+				"El agente anterior sigue abierto. Cierralo (Administrador de tareas > "+
+				"cybererp-print-agent.exe) o reinicia el equipo, y vuelve a ejecutar este instalador.",
+				destExe, err)
+		}
 	}
 	fmt.Printf("  [OK] Ejecutable copiado a %s\n", destExe)
 
@@ -200,6 +229,19 @@ func selfUninstall() {
 	_ = eventlog.Remove(svcName)
 
 	fmt.Printf("  [OK] Servicio '%s' eliminado.\n", svcName)
+}
+
+// cleanupOldExecutables borra los ejecutables apartados por instalaciones
+// anteriores. Se hace al principio, cuando ya nadie los tiene abiertos; si
+// alguno sigue en uso se ignora y se intentara la proxima vez.
+func cleanupOldExecutables(dir string) {
+	matches, err := filepath.Glob(filepath.Join(dir, "cybererp-print-agent.exe.old-*"))
+	if err != nil {
+		return
+	}
+	for _, old := range matches {
+		_ = os.Remove(old)
+	}
 }
 
 func copyFileSafe(src, dst string) error {
