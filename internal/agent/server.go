@@ -29,6 +29,11 @@ type ServerConfig struct {
 	MaxRetries      int
 	RateLimitPerMin int
 	DataDir         string
+	// Capabilities: lo que este agente declara saber hacer ("escpos_qr" =
+	// dibuja códigos QR). Se expone en /status para que quien imprime por HTTP
+	// local sepa si puede mandarle el QR para dibujar o se lo tiene que
+	// escribir como texto.
+	Capabilities []string
 }
 
 type Server struct {
@@ -426,6 +431,11 @@ type printTicketRequest struct {
 	CutPaper    bool     `json:"cutPaper"`
 	APIBaseURL  string   `json:"apiBaseUrl"`
 	BearerToken string   `json:"bearerToken"`
+	// QR: la cadena del comprobante para DIBUJARLA como código (F6). Viaja
+	// aparte de `lines` justamente para que sea un QR y no tres renglones de
+	// texto. Un agente antiguo ignora este campo, y por eso quien lo manda
+	// comprueba antes si este agente sabe dibujarlo.
+	QR string `json:"qr,omitempty"`
 }
 
 func (s *Server) handlePrintTicket(w http.ResponseWriter, r *http.Request) {
@@ -547,7 +557,7 @@ func (s *Server) runTicketWorker() {
 func (s *Server) processTicket(payload printTicketRequest) {
 	var lastErr error
 	for attempt := 1; attempt <= s.cfg.MaxRetries; attempt++ {
-		if err := sendTicketPrint(payload.PrinterName, payload.Title, payload.Lines, payload.Footer, payload.OpenDrawer, payload.CutPaper); err != nil {
+		if err := sendTicketPrint(payload.PrinterName, payload.Title, payload.Lines, payload.Footer, payload.OpenDrawer, payload.CutPaper, payload.QR); err != nil {
 			lastErr = err
 			if attempt < s.cfg.MaxRetries {
 				time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
@@ -704,8 +714,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":   stat,
-		"agent_id": agentID,
+		"status":       stat,
+		"agent_id":     agentID,
+		"capabilities": s.cfg.Capabilities,
 	})
 }
 

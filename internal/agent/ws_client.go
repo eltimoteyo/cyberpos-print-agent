@@ -39,6 +39,7 @@ type WSJobPayload struct {
 	APIBaseURL   string         `json:"api_base_url"`
 	BearerToken  string         `json:"bearer_token"`
 	TargetFormat string         `json:"target_format,omitempty"`
+	QR           string         `json:"qr,omitempty"`
 	Payload      map[string]any `json:"payload,omitempty"`
 }
 
@@ -296,6 +297,7 @@ func (c *WSClient) handleJob(raw json.RawMessage) {
 		CutPaper:    payload.CutPaper,
 		APIBaseURL:  payload.APIBaseURL,
 		BearerToken: payload.BearerToken,
+		QR:          payload.QR,
 	}
 
 	if err := c.srv.EnqueueRemoteJob(req); err != nil {

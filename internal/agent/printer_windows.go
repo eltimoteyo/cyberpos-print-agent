@@ -187,7 +187,7 @@ func sendTestPrint(printerName string) error {
 	return dispatchRaw(printerName, data)
 }
 
-func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool) error {
+func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool, qr string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("ticket print is currently supported only on Windows")
 	}
@@ -226,6 +226,16 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 	data = append(data, escposAlignLeft()...)
 	data = append(data, []byte(content+"\r\n")...)
 
+	// El QR del comprobante, DIBUJADO por la impresora (F6). Hasta ahora la
+	// cadena viajaba dentro de `lines` como tres renglones de texto: eso no es
+	// un QR, es su contenido escrito, y nadie puede escanearlo.
+	if qr = strings.TrimSpace(qr); qr != "" {
+		data = append(data, escposAlignCenter()...)
+		data = append(data, escposQR(qr, 6)...)
+		data = append(data, escposAlignLeft()...)
+		data = append(data, []byte("\r\n")...)
+	}
+
 	if openDrawer {
 		data = append(data, escposOpenDrawer()...)
 	}
@@ -241,6 +251,28 @@ func escposAlignLeft() []byte   { return []byte{0x1b, 0x61, 0x00} }
 func escposAlignCenter() []byte { return []byte{0x1b, 0x61, 0x01} }
 func escposCutPartial() []byte  { return []byte{0x1d, 0x56, 0x42, 0x00} }
 func escposOpenDrawer() []byte  { return []byte{0x1b, 0x70, 0x00, 0x19, 0xfa} }
+
+// escposQR dibuja un código QR con las órdenes nativas `GS ( k`.
+//
+// Son cinco en este orden: modelo, tamaño del módulo, corrección de errores,
+// almacenar los datos e imprimir. La longitud de la orden de almacenado viaja
+// en dos bytes (bajo, alto) e incluye los tres de cabecera —de ahí el +3—;
+// contarla mal hace que la impresora se coma parte de lo que venga después.
+//
+// Corrección M (15 %): es lo razonable en papel térmico, que se roza y se
+// decolora. Con L, un ticket algo gastado deja de leerse.
+func escposQR(data string, moduleSize byte) []byte {
+	payload := []byte(data)
+	storeLen := len(payload) + 3
+
+	out := []byte{0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00} // modelo 2
+	out = append(out, 0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, moduleSize)
+	out = append(out, 0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31)
+	out = append(out, 0x1d, 0x28, 0x6b, byte(storeLen&0xff), byte((storeLen>>8)&0xff), 0x31, 0x50, 0x30)
+	out = append(out, payload...)
+	out = append(out, 0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30)
+	return out
+}
 
 type docInfo1 struct {
 	pDocName    *uint16

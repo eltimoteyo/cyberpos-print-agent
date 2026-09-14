@@ -135,6 +135,9 @@ func buildServerConfig() agent.ServerConfig {
 		QueueMaxSize:    getIntEnv("PRINT_AGENT_QUEUE_SIZE", 200),
 		MaxRetries:      getIntEnv("PRINT_AGENT_MAX_RETRIES", 3),
 		DataDir:         getEnv("PRINT_AGENT_DATA_DIR", ""),
+		// Lo mismo que se declara al gateway: quien imprima por HTTP local lo
+		// lee de /status para decidir si manda el QR a dibujar o escrito.
+		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", "escpos,escpos_qr"),
 	}
 }
 
@@ -145,7 +148,11 @@ func buildWSClientConfig() agent.WSClientConfig {
 		Token:        getEnv("PRINT_AGENT_TOKEN", ""),
 		Version:      getEnv("PRINT_AGENT_VERSION", "0.1.0"),
 		Hostname:     getEnv("PRINT_AGENT_HOSTNAME", ""),
-		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", "escpos"),
+		// escpos_qr: este agente sabe DIBUJAR el QR (GS ( k), no solo escribir
+		// su contenido. El gateway lo mira antes de mandarlo: a un agente que
+		// no lo declare le manda la cadena como texto, para que el comprobante
+		// no salga sin QR de ninguna clase.
+		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", "escpos,escpos_qr"),
 		DataDir:      getEnv("PRINT_AGENT_DATA_DIR", ""),
 	}
 }

@@ -20,6 +20,6 @@ func sendTestPrint(printerName string) error {
 	return errors.New("test print is currently supported only on Windows")
 }
 
-func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool) error {
+func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool, qr string) error {
 	return errors.New("ticket print is currently supported only on Windows")
 }
