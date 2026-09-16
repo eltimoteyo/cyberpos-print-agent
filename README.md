@@ -29,7 +29,11 @@ The agent can connect to `api-gateway` via WebSocket to receive print jobs in re
 - Remote/cross-device printing (tablet/smartphone/another POS sends jobs to this agent).
 - Instant job delivery instead of relying on the frontend to reach `127.0.0.1:12345`.
 
-The agent auto-generates and persists a unique `agent_id` in its data directory.
+El agente genera un `agent_id` provisional al arrancar. Al recibir `registered`, adopta la identidad autorizada por el gateway, la guarda en `agent.json` y la expone en `/status`. Así, las impresoras registradas desde el navegador usan la misma identidad que recibe los trabajos remotos.
+
+La conexión requiere una llave de impresión (`token_type=agent`, sin permisos de integración). La llave se emite desde CyberERP y su identidad prevalece sobre `PRINT_AGENT_ID`. Al vencer o revocarse, hay que instalar una llave vigente; el agente no renueva credenciales por sí solo.
+
+El agente envía la llave en el encabezado `Authorization: Bearer` del handshake WebSocket. No la incluye en la URL y elimina cualquier parámetro `token` heredado de la configuración.
 
 ## Environment variables
 
@@ -46,8 +50,8 @@ The agent auto-generates and persists a unique `agent_id` in its data directory.
 | `PRINT_AGENT_MAX_RETRIES` | `3` | Local retry attempts per ticket |
 | `PRINT_AGENT_DATA_DIR` | `""` | Data directory. Defaults to `%PROGRAMDATA%\CyberERP\PrintAgent` when running as a service, or `%UserConfigDir%\cybererp\print-agent` otherwise |
 | `PRINT_AGENT_GATEWAY_WS_URL` | `""` | WebSocket URL of the gateway (e.g. `wss://api.createam.cloud/api/v1/print-agent/ws`) |
-| `PRINT_AGENT_ID` | `""` | Stable agent ID. Auto-generated and persisted if empty |
-| `PRINT_AGENT_TOKEN` | `""` | JWT access token used to authenticate the WebSocket connection |
+| `PRINT_AGENT_ID` | `""` | ID provisional al arrancar; el registro del gateway establece la identidad autorizada |
+| `PRINT_AGENT_TOKEN` | `""` | JWT de agente de impresión; no usar un access token de usuario ni una llave de integración |
 | `PRINT_AGENT_HOSTNAME` | `""` | Hostname reported to the gateway. Auto-detected if empty |
 | `PRINT_AGENT_CAPABILITIES` | `escpos` | Comma-separated capabilities reported to the gateway (`escpos`, `a4`, `pdf`) |
 
@@ -68,7 +72,7 @@ cd deploy/windows
 .\install-agent.ps1 `
   -ExePath "..\..\dist\cybererp-print-agent.exe" `
   -GatewayWSUrl "wss://api.createam.cloud/api/v1/print-agent/ws" `
-  -AgentToken "<jwt-access-token>"
+  -AgentToken "<jwt-agent-token>"
 ```
 
 The installer:

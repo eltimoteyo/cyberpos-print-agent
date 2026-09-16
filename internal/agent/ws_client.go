@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -60,13 +61,13 @@ type WSMessage struct {
 
 // WSClient maintains a persistent WebSocket connection to the api-gateway.
 type WSClient struct {
-	cfg      WSClientConfig
-	srv      *Server
-	conn     *websocket.Conn
-	mu       sync.Mutex
-	stopCh   <-chan struct{}
-	send     chan []byte
-	agentID  string
+	cfg     WSClientConfig
+	srv     *Server
+	conn    *websocket.Conn
+	mu      sync.Mutex
+	stopCh  <-chan struct{}
+	send    chan []byte
+	agentID string
 }
 
 // NewWSClient creates a gateway WebSocket client.
@@ -114,17 +115,22 @@ func (c *WSClient) Run(stopCh <-chan struct{}) {
 		}
 
 		backoff = 1 * time.Second
-		log.Printf("[ws] connected to gateway as agent %s", c.agentID)
+		log.Printf("[ws] connected to gateway as agent %s", c.currentAgentID())
 
 		// Reset on disconnect
 		done := make(chan struct{})
-		go c.writePump(done)
+		writerDone := make(chan struct{})
+		go func() {
+			defer close(writerDone)
+			c.writePump(done)
+		}()
 
 		if err := c.readPump(); err != nil {
 			log.Printf("[ws] connection lost: %v", err)
 		}
 		close(done)
 		c.closeConnection()
+		<-writerDone
 
 		select {
 		case <-stopCh:
@@ -142,14 +148,16 @@ func (c *WSClient) connect() error {
 	}
 
 	q := u.Query()
-	q.Set("token", c.cfg.Token)
+	q.Del("token")
 	u.RawQuery = q.Encode()
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+strings.TrimSpace(c.cfg.Token))
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.Dial(u.String(), nil)
+	conn, _, err := dialer.Dial(u.String(), headers)
 	if err != nil {
 		return err
 	}
@@ -167,7 +175,7 @@ func (c *WSClient) connect() error {
 	reg := WSMessage{
 		Type: "register",
 		Payload: mustRawJSON(map[string]any{
-			"agent_id":     c.agentID,
+			"agent_id":     c.currentAgentID(),
 			"hostname":     hostname,
 			"version":      c.cfg.Version,
 			"capabilities": normalizeStringSlice(c.cfg.Capabilities),
@@ -193,9 +201,15 @@ func (c *WSClient) closeConnection() {
 }
 
 func (c *WSClient) readPump() error {
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("not connected to gateway")
+	}
 	for {
 		var msg WSMessage
-		if err := c.conn.ReadJSON(&msg); err != nil {
+		if err := conn.ReadJSON(&msg); err != nil {
 			return err
 		}
 
@@ -203,9 +217,14 @@ func (c *WSClient) readPump() error {
 		case "job":
 			c.handleJob(msg.Payload)
 		case "ping":
-			c.send <- mustJSONBytes(WSMessage{Type: "pong"})
+			if err := c.enqueueMessage(WSMessage{Type: "pong"}); err != nil {
+				return err
+			}
 		case "registered":
-			log.Printf("[ws] registered with gateway")
+			if err := c.acceptRegistration(msg.Payload); err != nil {
+				log.Printf("[ws] registration identity: %v", err)
+			}
+			log.Printf("[ws] registered with gateway as agent %s", c.currentAgentID())
 		case "error":
 			log.Printf("[ws] gateway error: %s", string(msg.Payload))
 		default:
@@ -215,6 +234,14 @@ func (c *WSClient) readPump() error {
 }
 
 func (c *WSClient) writePump(done <-chan struct{}) {
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	// Un fallo de escritura debe despertar readPump y permitir la reconexión.
+	defer c.closeConnection()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -222,25 +249,15 @@ func (c *WSClient) writePump(done <-chan struct{}) {
 		select {
 		case <-done:
 			return
+		case <-c.stopCh:
+			return
 		case msg := <-c.send:
-			c.mu.Lock()
-			conn := c.conn
-			c.mu.Unlock()
-			if conn == nil {
-				continue
-			}
 			_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				log.Printf("[ws] write error: %v", err)
 				return
 			}
 		case <-ticker.C:
-			c.mu.Lock()
-			conn := c.conn
-			c.mu.Unlock()
-			if conn == nil {
-				continue
-			}
 			_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
@@ -311,20 +328,69 @@ func (c *WSClient) handleJob(raw json.RawMessage) {
 }
 
 func (c *WSClient) reportResult(result WSJobResultPayload) error {
-	msg := WSMessage{
+	return c.enqueueMessage(WSMessage{
 		Type:    "job_result",
 		Payload: mustRawJSON(result),
-	}
+	})
+}
 
+// Solo writePump escribe después del registro inicial. Los trabajos pueden
+// terminar simultáneamente y Gorilla no admite varios escritores.
+func (c *WSClient) enqueueMessage(msg WSMessage) error {
 	c.mu.Lock()
-	conn := c.conn
-	c.mu.Unlock()
-	if conn == nil {
+	defer c.mu.Unlock()
+	if c.conn == nil {
 		return fmt.Errorf("not connected to gateway")
 	}
 
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return conn.WriteJSON(msg)
+	select {
+	case c.send <- mustJSONBytes(msg):
+		return nil
+	default:
+		return fmt.Errorf("gateway message queue is full")
+	}
+}
+
+func (c *WSClient) currentAgentID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.agentID
+}
+
+// El gateway devuelve la identidad autorizada por la llave. El ID generado
+// localmente es provisional: usarlo después del registro desincroniza /status
+// y las impresoras que el frontend vincula con este equipo.
+func (c *WSClient) acceptRegistration(raw json.RawMessage) error {
+	var registration struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.Unmarshal(raw, &registration); err != nil {
+		return fmt.Errorf("invalid registration: %w", err)
+	}
+	id := strings.TrimSpace(registration.AgentID)
+	if id == "" {
+		return fmt.Errorf("registration is missing agent_id")
+	}
+	c.mu.Lock()
+	c.agentID = id
+	c.mu.Unlock()
+	c.srv.SetAgentID(id)
+
+	dataDir := c.cfg.DataDir
+	if dataDir == "" {
+		dataDir = defaultDataDir()
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return fmt.Errorf("create identity directory: %w", err)
+	}
+	data, err := json.MarshalIndent(map[string]string{"agent_id": id}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "agent.json"), data, 0o644); err != nil {
+		return fmt.Errorf("persist agent identity: %w", err)
+	}
+	return nil
 }
 
 // ensureAgentID loads or generates and persists a unique agent ID.
