@@ -137,9 +137,17 @@ func buildServerConfig() agent.ServerConfig {
 		DataDir:         getEnv("PRINT_AGENT_DATA_DIR", ""),
 		// Lo mismo que se declara al gateway: quien imprima por HTTP local lo
 		// lee de /status para decidir si manda el QR a dibujar o escrito.
-		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", "escpos,escpos_qr"),
+		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", defaultCapabilities),
 	}
 }
+
+// defaultCapabilities: lo que este agente declara saber hacer. Quien le manda un
+// ticket —el gateway por WebSocket, o la aplicación por HTTP local— lo mira
+// antes de mandarle algo que un agente anterior no entendería:
+//
+//   - escpos_qr: DIBUJA el QR del comprobante (GS ( k).
+//   - escpos_logo: DIBUJA el logo del negocio en la cabecera (GS v 0).
+const defaultCapabilities = "escpos,escpos_qr,escpos_logo"
 
 func buildWSClientConfig() agent.WSClientConfig {
 	return agent.WSClientConfig{
@@ -152,7 +160,7 @@ func buildWSClientConfig() agent.WSClientConfig {
 		// su contenido. El gateway lo mira antes de mandarlo: a un agente que
 		// no lo declare le manda la cadena como texto, para que el comprobante
 		// no salga sin QR de ninguna clase.
-		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", "escpos,escpos_qr"),
+		Capabilities: getStringSliceEnv("PRINT_AGENT_CAPABILITIES", defaultCapabilities),
 		DataDir:      getEnv("PRINT_AGENT_DATA_DIR", ""),
 	}
 }

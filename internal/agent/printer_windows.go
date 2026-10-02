@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os/exec"
 	"runtime"
@@ -187,7 +188,7 @@ func sendTestPrint(printerName string) error {
 	return dispatchRaw(printerName, data)
 }
 
-func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool, qr string) error {
+func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool, qr string, logo *TicketLogo) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("ticket print is currently supported only on Windows")
 	}
@@ -221,6 +222,16 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 
 	content := strings.Join(ticketLines, "\r\n")
 	data := escposInit()
+
+	// El logo del negocio, arriba del todo. Si viene mal formado NO se manda
+	// —la impresora se comería el ticket como si fuera imagen— y el ticket
+	// sale como siempre, con el nombre del negocio en texto.
+	if dibujo, err := escposLogo(logo); err != nil {
+		log.Printf("[print] el logo no se imprime: %v", err)
+	} else {
+		data = append(data, dibujo...)
+	}
+
 	data = append(data, escposAlignCenter()...)
 	data = append(data, []byte(title+"\r\n")...)
 	data = append(data, escposAlignLeft()...)
@@ -245,12 +256,6 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 
 	return dispatchRaw(printerName, data)
 }
-
-func escposInit() []byte        { return []byte{0x1b, 0x40} }
-func escposAlignLeft() []byte   { return []byte{0x1b, 0x61, 0x00} }
-func escposAlignCenter() []byte { return []byte{0x1b, 0x61, 0x01} }
-func escposCutPartial() []byte  { return []byte{0x1d, 0x56, 0x42, 0x00} }
-func escposOpenDrawer() []byte  { return []byte{0x1b, 0x70, 0x00, 0x19, 0xfa} }
 
 // escposQR dibuja un código QR con las órdenes nativas `GS ( k`.
 //

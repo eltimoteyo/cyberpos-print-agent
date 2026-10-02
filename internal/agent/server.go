@@ -436,6 +436,10 @@ type printTicketRequest struct {
 	// texto. Un agente antiguo ignora este campo, y por eso quien lo manda
 	// comprueba antes si este agente sabe dibujarlo.
 	QR string `json:"qr,omitempty"`
+	// Logo: el logo del negocio ya convertido a puntos, para la cabecera del
+	// ticket. Igual que el QR: quien lo manda comprueba antes que este agente
+	// declare "escpos_logo".
+	Logo *TicketLogo `json:"logo,omitempty"`
 }
 
 func (s *Server) handlePrintTicket(w http.ResponseWriter, r *http.Request) {
@@ -557,7 +561,7 @@ func (s *Server) runTicketWorker() {
 func (s *Server) processTicket(payload printTicketRequest) {
 	var lastErr error
 	for attempt := 1; attempt <= s.cfg.MaxRetries; attempt++ {
-		if err := sendTicketPrint(payload.PrinterName, payload.Title, payload.Lines, payload.Footer, payload.OpenDrawer, payload.CutPaper, payload.QR); err != nil {
+		if err := sendTicketPrint(payload.PrinterName, payload.Title, payload.Lines, payload.Footer, payload.OpenDrawer, payload.CutPaper, payload.QR, payload.Logo); err != nil {
 			lastErr = err
 			if attempt < s.cfg.MaxRetries {
 				time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
