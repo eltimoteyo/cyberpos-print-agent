@@ -195,6 +195,11 @@ func (s *Server) EnqueueRemoteJob(req printTicketRequest) error {
 	}
 
 	req.PrinterName = printerName
+	if req.PaperWidth == "" {
+		if cfg, ok, _ := s.store.Load(); ok {
+			req.PaperWidth = cfg.PaperWidth
+		}
+	}
 	if strings.TrimSpace(req.Title) == "" {
 		req.Title = "CyberERP Ticket"
 	}
@@ -421,6 +426,7 @@ func (s *Server) handlePrintTest(w http.ResponseWriter, r *http.Request) {
 }
 
 type printTicketRequest struct {
+	PaperWidth  string   `json:"paperWidth"`
 	JobID       string   `json:"jobId"`
 	SaleID      string   `json:"saleId"`
 	PrinterName string   `json:"printerName"`
@@ -481,6 +487,11 @@ func (s *Server) handlePrintTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload.PrinterName = printerName
+	if payload.PaperWidth == "" {
+		if cfg, ok, _ := s.store.Load(); ok {
+			payload.PaperWidth = cfg.PaperWidth
+		}
+	}
 	payload.Title = title
 	payload.JobID = strings.TrimSpace(payload.JobID)
 	payload.SaleID = strings.TrimSpace(payload.SaleID)
@@ -561,7 +572,7 @@ func (s *Server) runTicketWorker() {
 func (s *Server) processTicket(payload printTicketRequest) {
 	var lastErr error
 	for attempt := 1; attempt <= s.cfg.MaxRetries; attempt++ {
-		if err := sendTicketPrint(payload.PrinterName, payload.Title, payload.Lines, payload.Footer, payload.OpenDrawer, payload.CutPaper, payload.QR, payload.Logo); err != nil {
+		if err := sendTicketPrint(payload.PrinterName, payload.Title, payload.Lines, payload.Footer, payload.OpenDrawer, payload.CutPaper, payload.QR, payload.Logo, payload.PaperWidth); err != nil {
 			lastErr = err
 			if attempt < s.cfg.MaxRetries {
 				time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
@@ -718,9 +729,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":       stat,
-		"agent_id":     agentID,
-		"capabilities": s.cfg.Capabilities,
+		"status":             stat,
+		"agent_id":           agentID,
+		"capabilities":       s.cfg.Capabilities,
+		"http_auth_required": strings.TrimSpace(s.cfg.PairingToken) != "" || strings.TrimSpace(s.cfg.SigningSecret) != "",
 	})
 }
 
@@ -766,9 +778,9 @@ func (s *Server) handleJobsRecent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"jobs": jobs,
 		"agent_status": map[string]any{
-			"last_print_status":  lastStatus,
-			"last_error":         lastError,
-			"last_printer":       lastPrinter,
+			"last_print_status": lastStatus,
+			"last_error":        lastError,
+			"last_printer":      lastPrinter,
 		},
 	})
 }

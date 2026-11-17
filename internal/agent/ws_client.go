@@ -304,7 +304,9 @@ func (c *WSClient) handleJob(raw json.RawMessage) {
 	}
 
 	// Convert to the internal ticket format and enqueue on the shared server queue.
+	paper, _ := payload.Payload["paper_width"].(string)
 	req := printTicketRequest{
+		PaperWidth:  paper,
 		JobID:       payload.JobID,
 		SaleID:      payload.SaleID,
 		PrinterName: payload.PrinterName,

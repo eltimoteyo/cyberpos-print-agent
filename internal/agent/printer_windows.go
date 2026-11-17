@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os/exec"
 	"runtime"
@@ -188,7 +187,7 @@ func sendTestPrint(printerName string) error {
 	return dispatchRaw(printerName, data)
 }
 
-func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool, qr string, logo *TicketLogo) error {
+func sendTicketPrint(printerName, title string, lines, footer []string, openDrawer, cutPaper bool, qr string, logo *TicketLogo, paperWidth string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("ticket print is currently supported only on Windows")
 	}
@@ -198,85 +197,7 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 		return errors.New("printerName is required")
 	}
 
-	title = strings.TrimSpace(title)
-	if title == "" {
-		title = "CyberERP Ticket"
-	}
-
-	ticketLines := []string{
-		"================================",
-		title,
-		time.Now().Format(time.RFC3339),
-		"--------------------------------",
-	}
-	ticketLines = append(ticketLines, lines...)
-
-	if len(footer) > 0 {
-		ticketLines = append(ticketLines, "--------------------------------")
-		ticketLines = append(ticketLines, footer...)
-	}
-
-	ticketLines = append(ticketLines, "================================")
-	ticketLines = append(ticketLines, "")
-	ticketLines = append(ticketLines, "")
-
-	content := strings.Join(ticketLines, "\r\n")
-	data := escposInit()
-
-	// El logo del negocio, arriba del todo. Si viene mal formado NO se manda
-	// —la impresora se comería el ticket como si fuera imagen— y el ticket
-	// sale como siempre, con el nombre del negocio en texto.
-	if dibujo, err := escposLogo(logo); err != nil {
-		log.Printf("[print] el logo no se imprime: %v", err)
-	} else {
-		data = append(data, dibujo...)
-	}
-
-	data = append(data, escposAlignCenter()...)
-	data = append(data, []byte(title+"\r\n")...)
-	data = append(data, escposAlignLeft()...)
-	data = append(data, []byte(content+"\r\n")...)
-
-	// El QR del comprobante, DIBUJADO por la impresora (F6). Hasta ahora la
-	// cadena viajaba dentro de `lines` como tres renglones de texto: eso no es
-	// un QR, es su contenido escrito, y nadie puede escanearlo.
-	if qr = strings.TrimSpace(qr); qr != "" {
-		data = append(data, escposAlignCenter()...)
-		data = append(data, escposQR(qr, 6)...)
-		data = append(data, escposAlignLeft()...)
-		data = append(data, []byte("\r\n")...)
-	}
-
-	if openDrawer {
-		data = append(data, escposOpenDrawer()...)
-	}
-	if cutPaper {
-		data = append(data, escposCutPartial()...)
-	}
-
-	return dispatchRaw(printerName, data)
-}
-
-// escposQR dibuja un código QR con las órdenes nativas `GS ( k`.
-//
-// Son cinco en este orden: modelo, tamaño del módulo, corrección de errores,
-// almacenar los datos e imprimir. La longitud de la orden de almacenado viaja
-// en dos bytes (bajo, alto) e incluye los tres de cabecera —de ahí el +3—;
-// contarla mal hace que la impresora se coma parte de lo que venga después.
-//
-// Corrección M (15 %): es lo razonable en papel térmico, que se roza y se
-// decolora. Con L, un ticket algo gastado deja de leerse.
-func escposQR(data string, moduleSize byte) []byte {
-	payload := []byte(data)
-	storeLen := len(payload) + 3
-
-	out := []byte{0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00} // modelo 2
-	out = append(out, 0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, moduleSize)
-	out = append(out, 0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31)
-	out = append(out, 0x1d, 0x28, 0x6b, byte(storeLen&0xff), byte((storeLen>>8)&0xff), 0x31, 0x50, 0x30)
-	out = append(out, payload...)
-	out = append(out, 0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30)
-	return out
+	return dispatchRaw(printerName, buildTicketBytes(title, lines, footer, openDrawer, cutPaper, qr, logo, paperWidth))
 }
 
 type docInfo1 struct {
