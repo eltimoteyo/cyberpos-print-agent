@@ -154,7 +154,7 @@ func buildWSClientConfig() agent.WSClientConfig {
 		GatewayWSURL: getEnv("PRINT_AGENT_GATEWAY_WS_URL", ""),
 		AgentID:      getEnv("PRINT_AGENT_ID", ""),
 		Token:        getEnv("PRINT_AGENT_TOKEN", ""),
-		Version:      getEnv("PRINT_AGENT_VERSION", "0.1.0"),
+		Version:      getEnv("PRINT_AGENT_VERSION", Version),
 		Hostname:     getEnv("PRINT_AGENT_HOSTNAME", ""),
 		// escpos_qr: este agente sabe DIBUJAR el QR (GS ( k), no solo escribir
 		// su contenido. El gateway lo mira antes de mandarlo: a un agente que

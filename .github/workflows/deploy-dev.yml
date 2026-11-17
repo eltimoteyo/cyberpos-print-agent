@@ -1,0 +1,50 @@
+name: Publicar agente DEV
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prerelease:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Validar agente
+        shell: pwsh
+        run: |
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compilar versión de pruebas
+        id: version
+        shell: pwsh
+        run: |
+          $version = "dev-$($env:GITHUB_SHA.Substring(0, 12))"
+          "tag=$version" >> $env:GITHUB_OUTPUT
+          go build -ldflags "-X main.Version=$version" -o cybererp-print-agent.exe ./cmd/print-agent/
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash cybererp-print-agent.exe -Algorithm SHA256).Hash
+          "Agente para pruebas en DEV. SHA256: $hash" | Set-Content -Encoding utf8 release-notes.txt
+      - name: Publicar prerelease sin actualizar producción
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # El prefijo dev- no activa el workflow de tags v* de producción.
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG cybererp-print-agent.exe --clobber
+          } else {
+            gh release create $env:TAG cybererp-print-agent.exe --target $env:GITHUB_SHA --title "Print Agent $env:TAG" --notes-file release-notes.txt --prerelease --latest=false
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
