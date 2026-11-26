@@ -12,13 +12,58 @@ func escposAlignCenter() []byte { return []byte{0x1b, 0x61, 0x01} }
 func escposCutPartial() []byte  { return []byte{0x1d, 0x56, 0x42, 0x00} }
 func escposOpenDrawer() []byte  { return []byte{0x1b, 0x70, 0x00, 0x19, 0xfa} }
 
-func buildTicketBytes(title string, lines, footer []string, drawer, cut bool, qr string, logo *TicketLogo, paper string) []byte {
+// fontADots: ancho de una letra de la fuente normal (A), 12 puntos tanto en
+// las térmicas de 203 ppp como en las de 180 ppp (Epson TM-T88).
+const fontADots = 12
+
+// thermalPrintableDots: el ancho imprimible en puntos que reporta el driver de
+// Windows, solo si tiene sentido para una térmica de rollo (180–210 ppp, hasta
+// 104 mm). Cualquier otra cosa —un driver genérico de texto, una impresora de
+// oficina— da 0: no se toca el margen.
+func thermalPrintableDots(horzRes, dpi int) int {
+	if dpi < 180 || dpi > 210 || horzRes < 300 || horzRes > 832 {
+		return 0
+	}
+	return horzRes
+}
+
+// escposPrintArea centra el bloque de texto en el papel (GS L margen izquierdo
+// + GS W ancho del área).
+//
+// En 80 mm el texto va a 42 columnas (504 puntos), pero la mayoría de térmicas
+// de 203 ppp imprimen 576 puntos: sin esto los 72 puntos sobrantes (9 mm)
+// quedaban todos a la derecha y el ticket se veía corrido a la izquierda,
+// mientras el título, el logo y el QR sí salían centrados. Con el área
+// centrada, el centrado de ESC a 1 también cae en el medio del papel.
+//
+// Sin el ancho real (0) no se manda nada: el ticket sale como antes.
+func escposPrintArea(printableDots, cols int) []byte {
+	text := cols * fontADots
+	if printableDots <= text {
+		return nil
+	}
+	margin := (printableDots - text) / 2
+	return []byte{
+		0x1d, 0x4c, byte(margin), byte(margin >> 8), // GS L: margen izquierdo
+		0x1d, 0x57, byte(text), byte(text >> 8), // GS W: ancho del área
+	}
+}
+
+// escposResetPrintArea devuelve el área completa para quien imprima después
+// sin inicializar la impresora.
+func escposResetPrintArea(printableDots int) []byte {
+	return []byte{0x1d, 0x4c, 0, 0, 0x1d, 0x57, byte(printableDots), byte(printableDots >> 8)}
+}
+
+func buildTicketBytes(title string, lines, footer []string, drawer, cut bool, qr string, logo *TicketLogo, paper string, printableDots int) []byte {
 	cols := 42
 	module := byte(6)
 	if strings.HasPrefix(paper, "58") {
 		cols, module = 32, 5
 	}
 	out := escposInit()
+	area := escposPrintArea(printableDots, cols)
+	out = append(out, area...)
 	if drawing, err := escposLogo(logo); err == nil {
 		out = append(out, drawing...)
 	}
@@ -47,6 +92,9 @@ func buildTicketBytes(title string, lines, footer []string, drawer, cut bool, qr
 		out = append(out, escposAlignLeft()...)
 	}
 	out = append(out, 0x1b, 0x64, 3) // Avanzar antes de cortar, incluido el QR.
+	if len(area) > 0 {
+		out = append(out, escposResetPrintArea(printableDots)...)
+	}
 	if drawer {
 		out = append(out, escposOpenDrawer()...)
 	}

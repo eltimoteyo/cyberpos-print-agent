@@ -197,7 +197,35 @@ func sendTicketPrint(printerName, title string, lines, footer []string, openDraw
 		return errors.New("printerName is required")
 	}
 
-	return dispatchRaw(printerName, buildTicketBytes(title, lines, footer, openDrawer, cutPaper, qr, logo, paperWidth))
+	return dispatchRaw(printerName, buildTicketBytes(title, lines, footer, openDrawer, cutPaper, qr, logo, paperWidth, printableDots(printerName)))
+}
+
+// printableDots pregunta al driver de Windows cuántos puntos imprime la
+// impresora a lo ancho (GetDeviceCaps HORZRES y LOGPIXELSX). Con eso el ticket
+// se centra en el papel (escposPrintArea). Si el driver no responde o no
+// parece una térmica de rollo, 0: el ticket sale como siempre.
+func printableDots(printerName string) int {
+	name, err := syscall.UTF16PtrFromString(printerName)
+	if err != nil {
+		return 0
+	}
+	driver, _ := syscall.UTF16PtrFromString("WINSPOOL")
+	gdi := syscall.NewLazyDLL("gdi32.dll")
+	createDC := gdi.NewProc("CreateDCW")
+	deleteDC := gdi.NewProc("DeleteDC")
+	getDeviceCaps := gdi.NewProc("GetDeviceCaps")
+	if createDC.Find() != nil || deleteDC.Find() != nil || getDeviceCaps.Find() != nil {
+		return 0
+	}
+	hdc, _, _ := createDC.Call(uintptr(unsafe.Pointer(driver)), uintptr(unsafe.Pointer(name)), 0, 0)
+	if hdc == 0 {
+		return 0
+	}
+	defer deleteDC.Call(hdc)
+	const horzRes, logPixelsX = 8, 88
+	dots, _, _ := getDeviceCaps.Call(hdc, horzRes)
+	dpi, _, _ := getDeviceCaps.Call(hdc, logPixelsX)
+	return thermalPrintableDots(int(int32(dots)), int(int32(dpi)))
 }
 
 type docInfo1 struct {

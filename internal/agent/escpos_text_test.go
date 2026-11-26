@@ -27,7 +27,7 @@ func TestTicketSpanishEncodingAndPaperWidth(t *testing.T) {
 				t.Fatal("desbordamiento")
 			}
 		}
-		ticket := buildTicketBytes("TITULO", []string{"áéíóú"}, nil, false, true, "", nil, tc.paper)
+		ticket := buildTicketBytes("TITULO", []string{"áéíóú"}, nil, false, true, "", nil, tc.paper, 0)
 		if bytes.Count(ticket, []byte("TITULO")) != 1 {
 			t.Fatal("título duplicado")
 		}
